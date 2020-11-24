@@ -1,20 +1,9 @@
 /* (c) 2017-2020 Pttn (https://github.com/Pttn/rieMiner)
-(c) 2018 Michael Bell/Rockhawk (assembly optimizations, improvements of work management between threads, and some more) (https://github.com/MichaelBell/) */
+(c) 2018 Michael Bell/Rockhawk (improvements of work management between threads and some more) (https://github.com/MichaelBell/) */
 
 #include <gmpxx.h> // With Uint64_Ts, we still need to use the Mpz_ functions, otherwise there are "ambiguous overload" errors on Windows...
-
-#include "external/gmp_util.h"
-#include "ispc/fermat.h"
 #include "Miner.hpp"
 
-extern "C" {
-	void rie_mod_1s_4p_cps(uint64_t *cps, uint64_t p);
-	mp_limb_t rie_mod_1s_4p(mp_srcptr ap, mp_size_t n, uint64_t ps, uint64_t cnt, uint64_t* cps);
-	mp_limb_t rie_mod_1s_2p_4times(mp_srcptr ap, mp_size_t n, uint32_t* ps, uint32_t cnt, uint64_t* cps, uint64_t* remainders);
-	mp_limb_t rie_mod_1s_2p_8times(mp_srcptr ap, mp_size_t n, uint32_t* ps, uint32_t cnt, uint64_t* cps, uint64_t* remainders);
-}
-
-constexpr uint64_t nPrimesTo2p32(203280222);
 constexpr int factorsCacheSize(16384);
 constexpr uint16_t maxSieveWorkers(16); // There is a noticeable performance penalty using Vector so we are using Arrays.
 thread_local std::array<uint64_t*, maxSieveWorkers> factorsCache{nullptr};
@@ -39,7 +28,6 @@ void Miner::init(const MinerParameters &minerParameters) {
 	_difficultyAtInit = job.difficulty;
 	
 	std::cout << "Initializing miner..." << std::endl;
-	std::cout << "Processor: " << _cpuInfo.getBrand() << std::endl;
 	// Get settings from Configuration File.
 	_parameters = minerParameters;
 	if (_parameters.threads == 0) {
@@ -77,15 +65,6 @@ void Miner::init(const MinerParameters &minerParameters) {
 	_parameters.sieveWorkers = std::min(_parameters.sieveWorkers, maxSieveWorkers);
 	_parameters.sieveWorkers = std::min(static_cast<int>(_parameters.sieveWorkers), static_cast<int>(_primorialOffsets.size()));
 	std::cout << " (" << _parameters.sieveWorkers << " Sieve Worker(s))" << std::endl;
-	std::cout << "Best SIMD instructions supported:";
-	if (_cpuInfo.hasAVX512()) std::cout << " AVX-512";
-	else if (_cpuInfo.hasAVX2()) {
-		std::cout << " AVX2";
-		if (!_parameters.useAvx2) std::cout << " (disabled -> AVX)";
-	}
-	else if (_cpuInfo.hasAVX()) std::cout << " AVX";
-	else std::cout << " AVX not suppported";
-	std::cout << std::endl;
 	
 	std::vector<uint64_t> cumulativeOffsets(_parameters.pattern.size(), 0);
 	std::partial_sum(_parameters.pattern.begin(), _parameters.pattern.end(), cumulativeOffsets.begin(), std::plus<uint64_t>());
@@ -154,8 +133,6 @@ void Miner::init(const MinerParameters &minerParameters) {
 		}
 		std::cout << "Table with all " << _primes.size() << " first primes generated in " << timeSince(t0) << " s (" << _primes.size()*sizeof(decltype(_primes)::value_type) << " bytes)." << std::endl;
 	}
-	if (_primes.size() % 2 == 1 && _parameters.pattern.size() == 6) // Needs to be even to use optimizations for 6-tuples
-		_primes.pop_back();
 	_nPrimes = _primes.size();
 	
 	if (_parameters.sieveBits == 0)
@@ -224,11 +201,8 @@ void Miner::init(const MinerParameters &minerParameters) {
 	for (uint64_t i(0) ; i < _nPrimes ; i++) {
 		const uint64_t p(_primes[i]);
 		if (p >= _factorMax) {
-			if (_primesIndexThreshold == 0) {
+			if (_primesIndexThreshold == 0)
 				_primesIndexThreshold = i;
-				if (_primesIndexThreshold % 2 == 1 && _parameters.pattern.size() == 6) // Needs to be even to use optimizations for 6-tuples
-					_primesIndexThreshold--;
-			}
 			sumInversesOfPrimes += 1./static_cast<double>(p);
 		}
 	}
@@ -240,12 +214,10 @@ void Miner::init(const MinerParameters &minerParameters) {
 	const uint64_t additionalFactorsEntriesPerIteration(17ULL*(additionalFactorsCountEstimation/_parameters.sieveIterations)/16ULL + 64ULL); // Have some margin
 	std::cout << "Estimated additional factors: " << additionalFactorsCountEstimation << " (allocated per iteration: " << additionalFactorsEntriesPerIteration << ")" << std::endl;
 	{
-		std::cout << "Precomputing modular inverses and division data..." << std::endl; // The precomputed data is used to speed up computations in _doPresieveTask.
+		std::cout << "Precomputing modular inverses..." << std::endl; // The precomputed data is used to speed up computations in _doPresieveTask.
 		t0 = std::chrono::steady_clock::now();
-		const uint64_t precompPrimes(std::min(_nPrimes, 5586502348UL)); // Precomputation only works up to p = 2^37
 		try {
 			_modularInverses.resize(_nPrimes); // Table of inverses of the primorial modulo a prime number in the table with index >= primorialNumber.
-			_modPrecompute.resize(precompPrimes);
 		}
 		catch (std::bad_alloc& ba) {
 			ERRORMSG("Unable to allocate memory for the precomputed data");
@@ -262,13 +234,11 @@ void Miner::init(const MinerParameters &minerParameters) {
 					mpz_set_ui(prime.get_mpz_t(), _primes[i]);
 					mpz_invert(modularInverse.get_mpz_t(), _primorial.get_mpz_t(), prime.get_mpz_t()); // modularInverse*primorial ≡ 1 (mod prime)
 					_modularInverses[i] = mpz_get_ui(modularInverse.get_mpz_t());
-					if (i < precompPrimes)
-						rie_mod_1s_4p_cps(&_modPrecompute[i], _primes[i]);
 				}
 			});
 		}
 		for (uint16_t j(0) ; j < _parameters.threads ; j++) threads[j].join();
-		std::cout << "Tables of " << _modularInverses.size() - _parameters.primorialNumber << " modular inverses and " << precompPrimes - _parameters.primorialNumber << " division entries generated in " << timeSince(t0) << " s (" << (_modularInverses.size() + precompPrimes - 2*_parameters.primorialNumber)*sizeof(decltype(_modularInverses)::value_type) << " bytes)." << std::endl;
+		std::cout << "Tables of " << _modularInverses.size() - _parameters.primorialNumber << " modular inverses generated in " << timeSince(t0) << " s (" << (_modularInverses.size() - 2*_parameters.primorialNumber)*sizeof(decltype(_modularInverses)::value_type) << " bytes)." << std::endl;
 	}
 	
 	try {
@@ -386,7 +356,6 @@ void Miner::clear() {
 		_sieves.clear();
 		_primes.clear();
 		_modularInverses.clear();
-		_modPrecompute.clear();
 		_primorialOffsets.clear();
 		_halfPattern.clear();
 		_primorialOffsetDiff.clear();
@@ -415,17 +384,8 @@ void Miner::_doPresieveTask(const Task &task) {
 	std::array<int, maxSieveWorkers> factorsCacheTotalCounts{0};
 	std::array<uint64_t*, maxSieveWorkers> &factorsCacheRef(factorsCache), // On Windows, caching these thread_local pointers on the stack makes a noticeable perf difference.
 	                                       &factorsCacheCountsRef(factorsCacheCounts);
-	const uint64_t precompLimit(_modPrecompute.size()), tupleSize(_parameters.pattern.size());
+	const uint64_t tupleSize(_parameters.pattern.size());
 	
-	uint64_t avxLimit(0);
-	const uint64_t avxWidth(_parameters.useAvx2 ? 8 : 4);
-	if (_cpuInfo.hasAVX()) {
-		avxLimit = nPrimesTo2p32 - avxWidth;
-		avxLimit -= (avxLimit - firstPrimeIndex) & (avxWidth - 1);  // Must be enough primes in range to use AVX
-	}
-	
-	uint64_t nextRemainder[8];
-	uint64_t nextRemainderIndex(8);
 	for (uint64_t i(firstPrimeIndex) ; i < lastPrimeIndex ; i++) {
 		const uint64_t p(_primes[i]);
 		uint64_t mi[4];
@@ -436,54 +396,12 @@ void Miner::_doPresieveTask(const Task &task) {
 		if (mi[2] >= p) mi[2] -= p;
 		mi[3] = mi[1] + mi[2];
 		if (mi[3] >= p) mi[3] -= p;
-		// Compute the first eliminated primorial factor for p fp, using precomputation speed up if available.
+		// Compute the first eliminated primorial factor for p fp.
 		// fp is the solution of firstCandidate + primorial*f ≡ 0 (mod p) for 0 <= f < p: fp = (p - (firstCandidate % p))*mi[0] % p.
 		// In the sieving phase, numbers of the form firstCandidate + (p*i + fp)*primorial for 0 <= i < factorMax are eliminated as they are divisible by p.
 		// This is for the first number of the constellation. Later, the mi[1-3] will be used to adjust fp for the other elements of the constellation.
-		uint64_t fp, cnt(0ULL), ps(0ULL);
-		if (i < precompLimit) { // Assembly optimized computation of fp by Michael Bell
-			bool haveRemainder(false);
-			if (nextRemainderIndex < avxWidth) {
-				fp = nextRemainder[nextRemainderIndex++];
-				cnt = __builtin_clzll(p);
-				ps = p << cnt;
-				haveRemainder = true;
-			}
-			else if (i < avxLimit) {
-				cnt = __builtin_clz(static_cast<uint32_t>(p));
-				if (__builtin_clz(static_cast<uint32_t>(_primes[i + avxWidth - 1])) == cnt) {
-					uint32_t ps32[8];
-					for (uint64_t j(0) ; j < avxWidth; j++) {
-						ps32[j] = static_cast<uint32_t>(_primes[i + j]) << cnt;
-						nextRemainder[j] = _modularInverses[i + j];
-					}
-					if (_parameters.useAvx2) rie_mod_1s_2p_8times(firstCandidate.get_mpz_t()->_mp_d, firstCandidate.get_mpz_t()->_mp_size, &ps32[0], cnt, &_modPrecompute[i], &nextRemainder[0]);
-					else rie_mod_1s_2p_4times(firstCandidate.get_mpz_t()->_mp_d, firstCandidate.get_mpz_t()->_mp_size, &ps32[0], cnt, &_modPrecompute[i], &nextRemainder[0]);
-					haveRemainder = true;
-					fp = nextRemainder[0];
-					nextRemainderIndex = 1;
-					cnt += 32ULL;
-					ps = static_cast<uint64_t>(ps32[0]) << 32ULL;
-				}
-			}
-			
-			if (!haveRemainder) {
-				cnt = __builtin_clzll(p);
-				ps = p << cnt;
-				const uint64_t remainder(rie_mod_1s_4p(firstCandidate.get_mpz_t()->_mp_d, firstCandidate.get_mpz_t()->_mp_size, ps, cnt, &_modPrecompute[i]));
-				const uint64_t pa(ps - remainder);
-				uint64_t r, n[2];
-				umul_ppmm(n[1], n[0], pa, mi[0]);
-				udiv_rnnd_preinv(r, n[1], n[0], ps, _modPrecompute[i]);
-				fp = r >> cnt;
-			}
-		}
-		else { // Basic computation of fp
-			const uint64_t remainder(mpz_tdiv_ui(firstCandidate.get_mpz_t(), p)), pa(p - remainder);
-			uint64_t q, n[2];
-			umul_ppmm(n[1], n[0], pa, mi[0]);
-			udiv_qrnnd(q, fp, n[1], n[0], p);
-		}
+		const uint64_t remainder(mpz_tdiv_ui(firstCandidate.get_mpz_t(), p)), pa(p - remainder);
+		uint64_t fp((pa*mi[0]) % p);
 		
 		// We use a macro here to ensure the compiler inlines the code, and also make it easier to early
 		// out of the function completely if the current height has changed.
@@ -521,29 +439,14 @@ void Miner::_doPresieveTask(const Task &task) {
 		if (_parameters.sieveWorkers == 1) continue;
 		
 		// Recompute fp to adjust to the PrimorialOffsets of other Sieve Workers.
-		uint64_t r;
-#define recomputeFp(sieveWorkerIndex) {				                                      \
-			if (i < precompLimit && _primorialOffsetDiff[sieveWorkerIndex - 1] < p) {	  \
-				uint64_t n[2];                                                            \
-				uint64_t os(_primorialOffsetDiff[sieveWorkerIndex - 1] << cnt);           \
-				umul_ppmm(n[1], n[0], os, mi[0]);                                         \
-				udiv_rnnd_preinv(r, n[1], n[0], ps, _modPrecompute[i]);                   \
-				r >>= cnt;                                                                \
-			}	                                                                          \
-			else {	                                                                      \
-				uint64_t q, n[2];                                                         \
-				umul_ppmm(n[1], n[0], _primorialOffsetDiff[sieveWorkerIndex - 1], mi[0]); \
-				udiv_qrnnd(q, r, n[1], n[0], p);                                          \
-			}                                                                             \
-		}
-		recomputeFp(1);
+		uint64_t r((_primorialOffsetDiff[0]*mi[0]) % p);
 		if (fp < r) fp += p;
 		fp -= r;
 		addFactorsToEliminateForP(1);
 		
 		for (int j(2) ; j < _parameters.sieveWorkers ; j++) {
 			if (_primorialOffsetDiff[j - 1] != _primorialOffsetDiff[j - 2])
-				recomputeFp(j);
+				r = (_primorialOffsetDiff[j - 1]*mi[0]) % p;
 			if (fp < r) fp += p;
 			fp -= r;
 			addFactorsToEliminateForP(j);
@@ -560,89 +463,11 @@ void Miner::_doPresieveTask(const Task &task) {
 	}
 }
 
-void Miner::_processSieve(uint64_t *factorsTable, uint32_t* factorsToEliminate, const uint64_t firstPrimeIndex, const uint64_t lastPrimeIndex) {
-	const uint64_t tupleSize(_parameters.pattern.size());
-	std::array<uint32_t, sieveCacheSize> sieveCache{0};
-	uint64_t sieveCachePos(0);
-	for (uint64_t i(firstPrimeIndex) ; i < lastPrimeIndex ; i++) {
-		const uint32_t p(_primes[i]);
-		for (uint64_t f(0) ; f < tupleSize; f++) {
-			while (factorsToEliminate[i*tupleSize + f] < _parameters.sieveSize) { // Eliminate primorial factors of the form p*m + fp for every m*p in the current table.
-				_addToSieveCache(factorsTable, sieveCache, sieveCachePos, factorsToEliminate[i*tupleSize + f]);
-				factorsToEliminate[i*tupleSize + f] += p; // Increment the m
-			}
-			factorsToEliminate[i*tupleSize + f] -= _parameters.sieveSize; // Prepare for the next iteration
-		}
-	}
-	_endSieveCache(factorsTable, sieveCache);
-}
-
-void Miner::_processSieve6(uint64_t *factorsTable, uint32_t* factorsToEliminate, uint64_t firstPrimeIndex, const uint64_t lastPrimeIndex) { // Assembly optimized sieving for 6-tuples by Michael Bell
-	assert(_parameters.pattern.size() == 6);
-	assert((lastPrimeIndex & 1) == 0);
-	// Already eliminate for the first prime to sieve if it is odd to align for the optimizations
-	if ((firstPrimeIndex & 1) != 0) {
-		for (uint64_t f(0) ; f < 6 ; f++) {
-			while (factorsToEliminate[firstPrimeIndex*6 + f] < _parameters.sieveSize) {
-				factorsTable[factorsToEliminate[firstPrimeIndex*6 + f] >> 6U] |= (1ULL << ((factorsToEliminate[firstPrimeIndex*6 + f] & 63U)));
-				factorsToEliminate[firstPrimeIndex*6 + f] += _primes[firstPrimeIndex];
-			}
-			factorsToEliminate[firstPrimeIndex*6 + f] -= _parameters.sieveSize;
-		}
-		firstPrimeIndex++;
-	}
-	xmmreg_t offsetmax;
-	offsetmax.m128 = _mm_set1_epi32(_parameters.sieveSize);
-	for (uint64_t i(firstPrimeIndex) ; i < lastPrimeIndex ; i += 2) {
-		xmmreg_t p1, p2, p3;
-		xmmreg_t factor1, factor2, factor3, nextIncr1, nextIncr2, nextIncr3;
-		xmmreg_t cmpres1, cmpres2, cmpres3;
-		p1.m128 = _mm_set1_epi32(_primes[i]);
-		p3.m128 = _mm_set1_epi32(_primes[i + 1]);
-		p2.m128 = _mm_castps_si128(_mm_shuffle_ps(_mm_castsi128_ps(p1.m128), _mm_castsi128_ps(p3.m128), _MM_SHUFFLE(0, 0, 0, 0)));
-		factor1.m128 = _mm_load_si128(reinterpret_cast<__m128i const*>(&factorsToEliminate[i*6 + 0]));
-		factor2.m128 = _mm_load_si128(reinterpret_cast<__m128i const*>(&factorsToEliminate[i*6 + 4]));
-		factor3.m128 = _mm_load_si128(reinterpret_cast<__m128i const*>(&factorsToEliminate[i*6 + 8]));
-		while (true) {
-			cmpres1.m128 = _mm_cmpgt_epi32(offsetmax.m128, factor1.m128);
-			cmpres2.m128 = _mm_cmpgt_epi32(offsetmax.m128, factor2.m128);
-			cmpres3.m128 = _mm_cmpgt_epi32(offsetmax.m128, factor3.m128);
-			const int mask1(_mm_movemask_epi8(cmpres1.m128));
-			const int mask2(_mm_movemask_epi8(cmpres2.m128));
-			const int mask3(_mm_movemask_epi8(cmpres3.m128));
-			if ((mask1 == 0) && (mask2 == 0) && (mask3 == 0)) break;
-			if (mask1 & 0x0008) factorsTable[factor1.v[0] >> 6] |= (1ULL << (factor1.v[0] & 63ULL));
-			if (mask1 & 0x0080) factorsTable[factor1.v[1] >> 6] |= (1ULL << (factor1.v[1] & 63ULL));
-			if (mask1 & 0x0800) factorsTable[factor1.v[2] >> 6] |= (1ULL << (factor1.v[2] & 63ULL));
-			if (mask1 & 0x8000) factorsTable[factor1.v[3] >> 6] |= (1ULL << (factor1.v[3] & 63ULL));
-			if (mask2 & 0x0008) factorsTable[factor2.v[0] >> 6] |= (1ULL << (factor2.v[0] & 63ULL));
-			if (mask2 & 0x0080) factorsTable[factor2.v[1] >> 6] |= (1ULL << (factor2.v[1] & 63ULL));
-			if (mask2 & 0x0800) factorsTable[factor2.v[2] >> 6] |= (1ULL << (factor2.v[2] & 63ULL));
-			if (mask2 & 0x8000) factorsTable[factor2.v[3] >> 6] |= (1ULL << (factor2.v[3] & 63ULL));
-			if (mask3 & 0x0008) factorsTable[factor3.v[0] >> 6] |= (1ULL << (factor3.v[0] & 63ULL));
-			if (mask3 & 0x0080) factorsTable[factor3.v[1] >> 6] |= (1ULL << (factor3.v[1] & 63ULL));
-			if (mask3 & 0x0800) factorsTable[factor3.v[2] >> 6] |= (1ULL << (factor3.v[2] & 63ULL));
-			if (mask3 & 0x8000) factorsTable[factor3.v[3] >> 6] |= (1ULL << (factor3.v[3] & 63ULL));
-			nextIncr1.m128 = _mm_and_si128(cmpres1.m128, p1.m128);
-			nextIncr2.m128 = _mm_and_si128(cmpres2.m128, p2.m128);
-			nextIncr3.m128 = _mm_and_si128(cmpres3.m128, p3.m128);
-			factor1.m128 = _mm_add_epi32(factor1.m128, nextIncr1.m128);
-			factor2.m128 = _mm_add_epi32(factor2.m128, nextIncr2.m128);
-			factor3.m128 = _mm_add_epi32(factor3.m128, nextIncr3.m128);
-		}
-		factor1.m128 = _mm_sub_epi32(factor1.m128, offsetmax.m128);
-		factor2.m128 = _mm_sub_epi32(factor2.m128, offsetmax.m128);
-		factor3.m128 = _mm_sub_epi32(factor3.m128, offsetmax.m128);
-		_mm_store_si128(reinterpret_cast<__m128i*>(&factorsToEliminate[i*6 + 0]), factor1.m128);
-		_mm_store_si128(reinterpret_cast<__m128i*>(&factorsToEliminate[i*6 + 4]), factor2.m128);
-		_mm_store_si128(reinterpret_cast<__m128i*>(&factorsToEliminate[i*6 + 8]), factor3.m128);
-	}
-}
-
 void Miner::_doSieveTask(Task task) {
 	Sieve& sieve(_sieves[task.sieve.id]);
 	std::unique_lock<std::mutex> presieveLock(sieve.presieveLock, std::defer_lock);
 	const uint64_t workIndex(task.workIndex), sieveIteration(task.sieve.iteration), firstPrimeIndex(_parameters.primorialNumber);
+	const uint64_t tupleSize(_parameters.pattern.size());
 	std::array<uint32_t, sieveCacheSize> sieveCache{0};
 	uint64_t sieveCachePos(0);
 	Task checkTask{Task::Type::Check, workIndex, .check = {}};
@@ -653,10 +478,17 @@ void Miner::_doSieveTask(Task task) {
 	memset(sieve.factorsTable, 0, sizeof(uint64_t)*_parameters.sieveWords);
 	
 	// Eliminate the p*i + fp factors (p < factorMax).
-	if (_parameters.pattern.size() == 6)
-		_processSieve6(sieve.factorsTable, sieve.factorsToEliminate, firstPrimeIndex, _primesIndexThreshold);
-	else
-		_processSieve(sieve.factorsTable, sieve.factorsToEliminate, firstPrimeIndex, _primesIndexThreshold);
+	for (uint64_t i(firstPrimeIndex) ; i < _primesIndexThreshold ; i++) {
+		const uint32_t p(_primes[i]);
+		for (uint64_t f(0) ; f < tupleSize; f++) {
+			while (sieve.factorsToEliminate[i*tupleSize + f] < _parameters.sieveSize) { // Eliminate primorial factors of the form p*m + fp for every m*p in the current table.
+				_addToSieveCache(sieve.factorsTable, sieveCache, sieveCachePos, sieve.factorsToEliminate[i*tupleSize + f]);
+				sieve.factorsToEliminate[i*tupleSize + f] += p; // Increment the m
+			}
+			sieve.factorsToEliminate[i*tupleSize + f] -= _parameters.sieveSize; // Prepare for the next iteration
+		}
+	}
+	_endSieveCache(sieve.factorsTable, sieveCache);
 	
 	if (_works[workIndex].job.height != _client->currentHeight())
 		goto sieveEnd;
@@ -665,6 +497,8 @@ void Miner::_doSieveTask(Task task) {
 	if (sieveIteration == 0) presieveLock.lock();
 	
 	// Eliminate these factors.
+	sieveCache = std::array<uint32_t, sieveCacheSize>{0};
+	sieveCachePos = 0;
 	for (uint64_t i(0) ; i < sieve.additionalFactorsToEliminateCounts[sieveIteration] ; i++)
 		_addToSieveCache(sieve.factorsTable, sieveCache, sieveCachePos, sieve.additionalFactorsToEliminate[sieveIteration][i]);
 	_endSieveCache(sieve.factorsTable, sieveCache);
@@ -718,24 +552,6 @@ bool isPrimeFermat(const mpz_class& n) {
 	return r == 1;
 }
 
-bool Miner::_testPrimesIspc(const std::array<uint32_t, maxCandidatesPerCheckTask> &factorOffsets, uint32_t is_prime[maxCandidatesPerCheckTask], const mpz_class &candidateStart, mpz_class &candidate) { // Assembly optimized prime testing by Michael Bell
-	uint32_t M[maxCandidatesPerCheckTask*MAX_N_SIZE], bits(0), N_Size;
-	uint32_t *mp(&M[0]);
-	for (uint32_t i(0) ; i < maxCandidatesPerCheckTask ; i++) {
-		candidate = candidateStart + _primorial*factorOffsets[i];
-		if (bits == 0) {
-			bits = mpz_sizeinbase(candidate.get_mpz_t(), 2);
-			N_Size = (bits >> 5) + ((bits & 0x1f) > 0);
-			if (N_Size > MAX_N_SIZE) return false;
-		}
-		else assert(bits == mpz_sizeinbase(candidate.get_mpz_t(), 2));
-		memcpy(mp, candidate.get_mpz_t()->_mp_d, N_Size*4);
-		mp += N_Size;
-	}
-	fermatTest(N_Size, maxCandidatesPerCheckTask, M, is_prime, _cpuInfo.hasAVX512());
-	return true;
-}
-
 void Miner::_doCheckTask(Task task) {
 	const uint16_t workIndex(task.workIndex);
 	if (_works[workIndex].job.height != _client->currentHeight()) return;
@@ -745,32 +561,13 @@ void Miner::_doCheckTask(Task task) {
 	candidateStart += _works[workIndex].primorialMultipleStart;
 	candidateStart += _primorialOffsets[task.check.offsetId];
 	
-	// AVX2 Primality Test is broken for non integer Difficulties
-	/*bool firstTestDone(false);
-	if (_parameters.useAvx2 && task.check.nCandidates == maxCandidatesPerCheckTask) { // Test candidates + 0 primality with assembly optimizations if possible.
-		uint32_t isPrime[maxCandidatesPerCheckTask];
-		firstTestDone = _testPrimesIspc(task.check.factorOffsets, isPrime, candidateStart, candidate);
-		if (firstTestDone) {
-			tupleCounts[0] += maxCandidatesPerCheckTask;
-			task.check.nCandidates = 0;
-			for (uint32_t i(0) ; i < maxCandidatesPerCheckTask ; i++) {
-				if (isPrime[i]) {
-					task.check.factorOffsets[task.check.nCandidates++] = task.check.factorOffsets[i];
-					tupleCounts[1]++;
-				}
-			}
-		}
-	}*/
-	
 	for (uint32_t i(0) ; i < task.check.nCandidates ; i++) {
 		if (_works[workIndex].job.height != _client->currentHeight()) break;
 		candidate = candidateStart + _primorial*task.check.factorOffsets[i];
 		
-		//if (!firstTestDone) { // Test candidate + 0 primality without optimizations if not done before.
-			tupleCounts[0]++;
-			if (!isPrimeFermat(candidate)) continue;
-			tupleCounts[1]++;
-		//}
+		tupleCounts[0]++;
+		if (!isPrimeFermat(candidate)) continue;
+		tupleCounts[1]++;
 		
 		uint32_t primeCount(1), offsetSum(0);
 		// Test primality of the other elements of the tuple if candidate + 0 is prime.

@@ -1,5 +1,4 @@
 // (c) 2018-2020 Pttn (https://github.com/Pttn/rieMiner)
-// (c) 2018 Michael Bell/Rockhawk (CPUID tools)
 
 #ifndef HEADER_tools_hpp
 #define HEADER_tools_hpp
@@ -18,7 +17,6 @@
 #include <sstream>
 #include <string>
 #include <vector>
-#include <cpuid.h>
 #include <gmpxx.h>
 
 #define leading0s(x) std::setw(x) << std::setfill('0')
@@ -76,17 +74,6 @@ inline double timeSince(const std::chrono::time_point<std::chrono::steady_clock>
 	const std::chrono::duration<double> dt(t - t0);
 	return dt.count();
 }
-
-class CpuID {
-	std::string _brand;
-	bool _avx, _avx2, _avx512;
-public:
-	CpuID();
-	std::string getBrand() const {return _brand;}
-	bool hasAVX() const {return _avx;}
-	bool hasAVX2() const {return _avx2;}
-	bool hasAVX512() const {return _avx512;}
-};
 
 template<class T> class TsQueue {
 	std::deque<T> _q;

@@ -11,12 +11,6 @@
 
 struct Job;
 
-union xmmreg_t {
-	uint32_t v[4];
-	uint64_t v64[2];
-	__m128i m128;
-};
-
 constexpr uint32_t sieveCacheSize(16);
 constexpr uint32_t nWorks(2);
 
@@ -92,11 +86,10 @@ class Miner {
 	StatManager _statManager;
 	std::thread _masterThread;
 	std::vector<std::thread> _workerThreads;
-	CpuID _cpuInfo;
 	// Miner data (generated in init)
 	mpz_class _primorial;
 	uint64_t _nPrimes, _factorMax, _primesIndexThreshold;
-	std::vector<uint64_t> _primes, _modularInverses, _modPrecompute;
+	std::vector<uint64_t> _primes, _modularInverses;
 	std::vector<mpz_class> _primorialOffsets;
 	std::vector<uint64_t> _halfPattern, _primorialOffsetDiff;
 	// Miner state variables
@@ -128,10 +121,7 @@ class Miner {
 	
 	void _addCachedAdditionalFactorsToEliminate(Sieve&, uint64_t*, uint64_t*, const int);
 	void _doPresieveTask(const Task&);
-	void _processSieve(uint64_t*, uint32_t*, const uint64_t, const uint64_t);
-	void _processSieve6(uint64_t*, uint32_t*, uint64_t, const uint64_t);
 	void _doSieveTask(Task);
-	bool _testPrimesIspc(const std::array<uint32_t, maxCandidatesPerCheckTask>&, uint32_t[maxCandidatesPerCheckTask], const mpz_class&, mpz_class&);
 	void _doCheckTask(Task);
 	void _doTasks(uint16_t);
 	void _manageTasks();

@@ -164,7 +164,6 @@ void Options::loadConf() {
 				else if (key == "Username") _username = value;
 				else if (key == "Password") _password = value;
 				else if (key == "PayoutAddress") _payoutAddress = value;
-				else if (key == "EnableAVX2") _minerParameters.useAvx2 = (value == "Yes");
 				else if (key == "Secret!!!") _secret = value;
 				else if (key == "Threads") {
 					try {_minerParameters.threads = std::stoi(value);}
@@ -335,7 +334,6 @@ int main(int argc, char** argv) {
 	std::cout << versionString << ", Riecoin miner by Pttn and contributors" << std::endl;
 	std::cout << "Project page: https://riecoin.dev/en/rieMiner" << std::endl;
 	std::cout << "-----------------------------------------------------------" << std::endl;
-	std::cout << "Assembly code by Michael Bell (Rockhawk)" << std::endl;
 	std::cout << "G++ " << __GNUC__ << "." << __GNUC_MINOR__ << "." << __GNUC_PATCHLEVEL__ << " - https://gcc.gnu.org/" << std::endl;
 	std::cout << "GMP " << __GNU_MP_VERSION << "." << __GNU_MP_VERSION_MINOR << "." << __GNU_MP_VERSION_PATCHLEVEL << " - https://gmplib.org/" << std::endl;
 	std::cout << "Curl " << LIBCURL_VERSION << " - https://curl.haxx.se/" << std::endl;
