@@ -89,7 +89,7 @@ class Miner {
 	// Miner data (generated in init)
 	mpz_class _primorial;
 	uint64_t _nPrimes, _factorMax, _primesIndexThreshold;
-	std::vector<uint64_t> _primes, _modularInverses;
+	std::vector<uint32_t> _primes, _modularInverses;
 	std::vector<mpz_class> _primorialOffsets;
 	std::vector<uint64_t> _halfPattern, _primorialOffsetDiff;
 	// Miner state variables

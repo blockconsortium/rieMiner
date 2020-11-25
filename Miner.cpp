@@ -76,7 +76,7 @@ void Miner::init(const MinerParameters &minerParameters) {
 	}
 	
 	if (_parameters.primeTableLimit == 0) {
-		constexpr uint64_t primeTableLimitMax(2147483648ULL);
+		constexpr uint32_t primeTableLimitMax(2147483648U);
 		_parameters.primeTableLimit = std::pow(_difficultyAtInit, 6.)/std::pow(2., 3.*static_cast<double>(_parameters.pattern.size()) + 7.);
 		if (_parameters.threads > 16) {
 			_parameters.primeTableLimit *= 16;
@@ -87,7 +87,7 @@ void Miner::init(const MinerParameters &minerParameters) {
 	std::cout << "Prime Table Limit: " << _parameters.primeTableLimit << std::endl;
 	std::transform(_parameters.pattern.begin(), _parameters.pattern.end(), std::back_inserter(_halfPattern), [](uint64_t n) {return n >> 1;});
 	
-	uint64_t primeTableFileBytes, savedPrimes(0), largestSavedPrime;
+	uint32_t primeTableFileBytes, savedPrimes(0), largestSavedPrime;
 	std::fstream file(primeTableFile);
 	if (file) {
 		file.seekg(0, std::ios::end);
@@ -103,7 +103,7 @@ void Miner::init(const MinerParameters &minerParameters) {
 		std::cout << "Extracting prime numbers from " << primeTableFile << " (" << primeTableFileBytes << " bytes, " << savedPrimes << " primes, largest " << largestSavedPrime << ")..." << std::endl;
 		uint64_t nPrimesUpperBound(std::min(1.085*static_cast<double>(_parameters.primeTableLimit)/std::log(static_cast<double>(_parameters.primeTableLimit)), static_cast<double>(savedPrimes))); // 1.085 = max(π(p)log(p)/p) for p >= 2^20
 		try {
-			_primes = std::vector<uint64_t>(nPrimesUpperBound);
+			_primes = std::vector<uint32_t>(nPrimesUpperBound);
 		}
 		catch (std::bad_alloc& ba) {
 			ERRORMSG("Unable to allocate memory for the prime table");

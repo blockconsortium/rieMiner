@@ -170,11 +170,11 @@ void Options::loadConf() {
 					catch (...) {_minerParameters.threads = 0;}
 				}
 				else if (key == "PrimeTableLimit") {
-					try {_minerParameters.primeTableLimit = std::stoll(value);}
+					try {_minerParameters.primeTableLimit = std::min(std::stoull(value), 4294967295ULL);}
 					catch (...) {_minerParameters.primeTableLimit = 0;}
 				}
 				else if (key == "GeneratePrimeTableFileUpTo"){
-					try {_filePrimeTableLimit = std::stoll(value);}
+					try {_filePrimeTableLimit = std::min(std::stoull(value), 4294967295ULL);}
 					catch (...) {_filePrimeTableLimit = 0;}
 				}
 				else if (key == "SieveWorkers") {
