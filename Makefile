@@ -11,17 +11,17 @@ else
 LIBS   = -pthread -ljansson -lcurl -lcrypto -Wl,-Bstatic -lgmpxx -lgmp -Wl,-Bdynamic
 endif
 
-all: rieMiner
+all: rieMinerL
 
 debug: CFLAGS = -Wall -Wextra -std=c++17 -O3 -g -march=native -fno-pie -no-pie
-debug: rieMiner
+debug: rieMinerL
 
 static: CFLAGS += -D CURL_STATICLIB -I incs/
 static: LIBS   := -static -L libs/ $(LIBS)
-static: rieMiner
+static: rieMinerL
 
-rieMiner: main.o Miner.o StratumClient.o GBTClient.o Client.o Stats.o tools.o
-	$(CXX) $(CFLAGS) -o rieMiner $^ $(LIBS)
+rieMinerL: main.o Miner.o StratumClient.o GBTClient.o Client.o Stats.o tools.o
+	$(CXX) $(CFLAGS) -o rieMinerL $^ $(LIBS)
 
 main.o: main.cpp main.hpp Miner.hpp StratumClient.hpp GBTClient.hpp Client.hpp Stats.hpp tools.hpp
 	$(CXX) $(CFLAGS) -c -o main.o main.cpp
@@ -45,4 +45,4 @@ tools.o: tools.cpp
 	$(CXX) $(CFLAGS) -c -o tools.o tools.cpp
 
 clean:
-	rm -rf rieMiner *.o
+	rm -rf rieMinerL *.o

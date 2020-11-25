@@ -76,7 +76,7 @@ void Miner::init(const MinerParameters &minerParameters) {
 	}
 	
 	if (_parameters.primeTableLimit == 0) {
-		constexpr uint32_t primeTableLimitMax(2147483648U);
+		constexpr uint32_t primeTableLimitMax(1073741824U);
 		_parameters.primeTableLimit = std::pow(_difficultyAtInit, 6.)/std::pow(2., 3.*static_cast<double>(_parameters.pattern.size()) + 7.);
 		if (_parameters.threads > 16) {
 			_parameters.primeTableLimit *= 16;
@@ -136,7 +136,7 @@ void Miner::init(const MinerParameters &minerParameters) {
 	_nPrimes = _primes.size();
 	
 	if (_parameters.sieveBits == 0)
-		_parameters.sieveBits = _parameters.sieveWorkers <= 4 ? 25 : 24;
+		_parameters.sieveBits = _parameters.sieveWorkers <= 4 ? 23 : 22;
 	_parameters.sieveSize = 1 << _parameters.sieveBits;
 	_parameters.sieveWords = _parameters.sieveSize/64;
 	std::cout << "Sieve Size: " << "2^" << _parameters.sieveBits << " = " << _parameters.sieveSize << " (" << _parameters.sieveWords << " words)" << std::endl;
