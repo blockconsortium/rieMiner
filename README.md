@@ -1,6 +1,6 @@
-# rieMiner 0.92L
+# rieMiner 0.92 for Android
 
-**This is the Light branch. It is intended for people willing to compile rieMiner on non x64 platforms. If it is not the case for you, you should go to the [master branch](https://github.com/Pttn/rieMiner). Also note that you are on your own using this branch and are expected to be able to fix any issue by yourself, so please don't report issues or ask for help if you encounter any problem**.
+**This is the Android branch. It is intended for people willing to cross compile rieMiner for Android systems. If it is not the case for you, you should go to the [master branch](https://github.com/Pttn/rieMiner). Also note that this branch is not actively maintained; as an user you are on your own using it and are expected to have decent Android knowledge and development abilities, and be able to fix any issue by yourself. So please don't report issues or ask for help if you encounter any problem**. Contributions to this branch are still welcome and we will be glad to support developers.
 
 rieMiner is a Riecoin miner supporting both solo and pooled mining, and can also be run standalone for prime constellation record attempts. Find the latest binaries [here](https://github.com/Pttn/rieMiner/releases) for Linux and Windows.
 
@@ -10,89 +10,132 @@ Happy Mining!
 
 ## Differences from the main version
 
-* The assembly optimizations were removed;
-* Use of 32 bits ints instead of 64 bits for some vectors to save memory (in exchange, the PrimeTableLimit must be lower than 2^32);
-* A few default parameters are modified.
+* Based on the [Light](https://github.com/Pttn/rieMiner/tree/Light) Branch;
+* Build instructions for Android replace the ones for Linux/Windows;
+* The Makefile is altered so the compilation can work.
+
+The C++ code itself is actually the same as the Light version. No interface was added, there is no Android Studio project, etc. You are more than welcome to fork this branch and make great Riecoin mining applications, create a proper APK file,... However, please don't use the code to create hidden miners or anything giving bad user experience.
 
 ## Minimum requirements
 
-* Recent enough Windows or Linux and appropriate compiler;
-* Virtually any usual 32 or 64 bits CPU (should work for any x86 since Pentium Pro and recent ARMs);
-* 256 MiB of RAM (the prime table limit must be manually set at a lower value in the options). Recommended 4-8 GiB.
+* Recent enough 64 bits Linux for the compilation (it was tested on a Debian 10 Live CD), recent enough Android (no Root needed);
+* Recent 32 or 64 bits ARM CPU, a powerful one from at most the latest couple of years recommended;
+* 512 MiB of RAM (the prime table limit must be manually set at a lower value in the options). Recommended 4-8 GiB.
+
+There is no built-in temperature control and you are responsible that the heat does not damage your device.
 
 ## Compile this program
 
-**Again, you are on your own, so please don't report compiling issues when using the Light branch**.
+**Again, you are on your own, so please don't report compiling issues when using the Android branch**.
 
-### On Debian/Ubuntu
+### Get Android NDK
 
-You can compile this C++ program with g++, as, m4 and make, install them if needed. Then, get if needed the following dependencies:
+Get the Android NDK Tools from [here](https://developer.android.com/ndk/downloads).
 
-* [Jansson](http://www.digip.org/jansson/)
-* [cURL](https://curl.haxx.se/)
-* [libSSL](https://www.openssl.org/)
-* [GMP](https://gmplib.org/)
+You should now have an `android-ndk-r21e` folder somewhere, we will use `/home/user/dev/android-ndk-r21e` as an example for the following instructions.
 
-On a recent enough Debian or Ubuntu, you can easily install these by doing as root:
+### Preparation
+
+#### Get basic development tools
+
+You may need to install basic build tools like `make` or `m4`. Install them using your package manager, for example
 
 ```bash
-apt install g++ make m4 git libjansson-dev libcurl4-openssl-dev libssl-dev libgmp-dev
+apt install make m4 git
 ```
 
-Then, just download the source files, go/`cd` to the directory, and do a simple make:
+If later you still encounter error messages indicating that something was not found, try to install the missing tool.
+
+#### Get and prepare the rieMiner's source code
+
+Get the rieMiner's source code and use the Android branch.
 
 ```bash
 git clone https://github.com/Pttn/rieMiner.git
 cd rieMiner
-git checkout Light
+git checkout Android
+```
+
+Create `incs` and `libs` folders in the rieMiner directory.
+
+#### Android API Level
+
+You must now choose your target Android API Level. Each level correspond to a minimum Android version with which an application is compatible, for example API Level 30 corresponds to Android 11. A list can be found [here](https://developer.android.com/studio/releases/platforms).
+
+The compilation was tested with levels 23 (Android 6) and 29 (Android 10), and should work for other common versions. The API Level 29 and the Aarch64 architecture are used in the following instructions, of course make the required adaptations if needed.
+
+### Compile the dependencies
+
+You must build yourself all the rieMiner's dependencies with these NDK tools.
+
+#### Enviroment variables
+
+When you are going to build a library, set (or just ensure that they are set) the following environment variables before running `configure`.
+
+```
+export NDK=/home/user/dev/android-ndk-r21e
+export HOST_TAG=linux-x86_64
+export TOOLCHAIN=$NDK/toolchains/llvm/prebuilt/$HOST_TAG
+export AR=$TOOLCHAIN/bin/aarch64-linux-android-ar
+export AS=$TOOLCHAIN/bin/aarch64-linux-android-as
+export CC=$TOOLCHAIN/bin/aarch64-linux-android29-clang
+export CXX=$TOOLCHAIN/bin/aarch64-linux-android29-clang++
+export LD=$TOOLCHAIN/bin/aarch64-linux-android-ld
+export RANLIB=$TOOLCHAIN/bin/aarch64-linux-android-ranlib
+export STRIP=$TOOLCHAIN/bin/aarch64-linux-android-strip
+```
+
+#### Curl
+
+Download Curl [here](https://curl.se/download.html). You should now have a folder like `curl-7.75.0` somewhere, enter it. Then set the environment variables above. Finally, configure and compile with
+
+```
+./configure --host aarch64-linux-android --with-pic --disable-dict --disable-file --disable-ftp --disable-gopher --disable-imap --disable-ldap --disable-ldaps --disable-pop3 --disable-rtsp --disable-smtp --disable-telnet --disable-tftp --without-ssl --without-libssh2 --without-zlib --without-brotli --without-zstd --without-libidn2  --without-ldap  --without-ldaps --without-rtsp --without-psl --without-librtmp --without-libpsl --without-nghttp2 --disable-shared --disable-libcurl-option
 make
 ```
 
-For other Linux, executing equivalent commands (using `pacman` instead of `apt`,...) should work.
+Now, go to the `include` directory and copy the `curl` folder to the rieMiner's `incs` folder that you created. Do the same with `libcurl.a` from the `libs/.lib` folder to the rieMiner's `libs` folder.
 
-### On Windows
+#### GMP
 
-You can compile rieMiner on Windows, and here is one way to do this. First, install [MSYS2](http://www.msys2.org/) (follow the instructions on the website), then enter in the MSYS **MinGW-w64** console, and install the tools and dependencies. For x64,
+Download GMP [here](https://gmplib.org/). You should now have a folder like `gmp-6.2.1` somewhere, enter it. Set the environment variables above. Configure and compile with
 
-```bash
-pacman -S make git
-pacman -S mingw64/mingw-w64-x86_64-gcc
-pacman -S mingw64/mingw-w64-x86_64-curl
 ```
-
-Or x86,
-
-
-```bash
-pacman -S make git
-pacman -S mingw64/mingw-w64-i686-gcc
-pacman -S mingw64/mingw-w64-i686-curl
-```
-
-Note that you must install these packages and not just `gcc` or `curl`.
-
-Clone rieMiner with `git`, go to its directory with `cd`, and compile with `make` (same commands as Linux, see above).
-
-#### Static building
-
-The produced executable will only run in the MSYS console, or if all the needed DLLs are next to the executable. To obtain a standalone executable, you need to link statically the dependencies. For this, you need to compile libcurl yourself.
-
-First, download the [latest official libcurl code](https://curl.haxx.se/download.html) on their website, under "Source Archives", and decompress the folder somewhere (for example, next to the rieMiner's one).
-
-In the MSYS MinGW-w64 console, cd to the libcurl directory. We will now configure it to not build unused features, then compile it:
-
-```bash
-./configure --disable-dict --disable-file --disable-ftp --disable-gopher --disable-imap --disable-ldap --disable-ldaps --disable-pop3 --disable-rtsp --disable-smtp --disable-telnet --disable-tftp --without-ssl --without-libssh2 --without-zlib --without-brotli --without-zstd --without-libidn2  --without-ldap  --without-ldaps --without-rtsp --without-psl --without-librtmp --without-libpsl --without-nghttp2 --disable-shared --disable-libcurl-option
+./configure --host aarch64-linux-android --enable-cxx --disable-shared
 make
 ```
 
-Once done:
+Now, copy `gmp.h` and `gmpxx.h` from the GMP's folder to the rieMiner's `incs` folder. Do the same with `libgmp.a` and `libgmpxx.a` from the `.libs` folder to the rieMiner's `libs` folder.
 
-* Create "incs" and "libs" folders in the rieMiner directory;
-* In the downloaded libcurl directory, go to the include directory and copy the "curl" folder to the "incs" folder;
-* Do the same with the file "libcurl.a" from the libs/.lib folder to the rieMiner's "libs" folder.
+#### Jansson
 
-Now, you should be able to compile rieMiner with `make static` and produce a standalone executable.
+Download Jansson [here](http://www.digip.org/jansson/). You should now have a folder like `jansson-2.13.1` somewhere, enter it. Set the environment variables above. Configure and compile with
+
+```
+./configure --host aarch64-linux-android --disable-shared
+make
+```
+
+Now, copy `jansson.h` from the `src` directory and `jansson_config.h` from `android` to the rieMiner's `incs` folder. Do the same with `libjansson.a` from the `src/.libs` folder to the rieMiner's `libs` folder.
+
+#### OpenSSL
+
+Download OpenSSL [here](https://www.openssl.org/source/). You should now have a folder like `openssl-1.1.1i` somewhere, enter it. You don't need to set the environment variables above, but must set the following ones, then configure and compile with
+
+```
+export ANDROID_NDK_HOME=/home/user/dev/android-ndk-r21e
+PATH=$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin:$ANDROID_NDK_HOME/toolchains/arm-linux-androideabi-4.9/prebuilt/linux-x86_64/bin:$PATH
+./Configure android-arm64 -D__ANDROID_API__=29
+make
+```
+
+Now, go to the `include` directory and copy the `openssl` folder to the rieMiner's `incs` folder. Do the same with the `libcrypto.a` file to the rieMiner's `libs` folder.
+
+### Compile and run rieMiner
+
+Now go to the rieMiner's directory, set the environment variables above, and do the final build with `make`.
+
+This will produce the binary file named `rieMinerAnd` that you can run using a Terminal Emulator on your phone or via Adb (don't forget to set it as executable). The configuration of the miner is exactly the same as usual versions of rieMiner.
 
 ## Configure this program
 
@@ -224,7 +267,7 @@ Or donate directly to the Riecoin project: ric1qr3yxckxtl7lacvtuzhrdrtrlzvlydane
 ## Resources
 
 * [Riecoin website](https://Riecoin.dev/);
-  * [rieMiner's page](https://riecoin.dev/en/rieMIner);
+  * [rieMiner's page](https://riecoin.dev/en/rieMiner);
   * [Explanation of the miner algorithm](https://riecoin.dev/en/Mining_Algorithm), you can also learn the theoretics behind some options.
 * [Bitcoin Wiki - Getblocktemplate](https://en.bitcoin.it/wiki/Getblocktemplate)
 * [BIP141](https://github.com/bitcoin/bips/blob/master/bip-0141.mediawiki) (Segwit)
